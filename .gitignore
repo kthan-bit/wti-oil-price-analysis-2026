@@ -79,6 +79,10 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
+# Generated WTI reports
+reports/*.pdf
+reports/cron.log
+
 # IPython
 profile_default/
 ipython_config.py
