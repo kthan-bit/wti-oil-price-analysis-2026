@@ -179,7 +179,7 @@ def generate_pdf_report(analysis: pd.DataFrame, output_path: str | Path) -> Path
         price_axis.set_title("Daily spot price and moving averages")
         price_axis.set_ylabel("USD per barrel")
         price_axis.grid(alpha=0.25)
-        price_axis.legend(loc="best", ncols=2)
+        price_axis.legend(loc="best", ncol=2)
         summary_fig.autofmt_xdate()
         pdf.savefig(summary_fig)
         plt.close(summary_fig)
