@@ -26,7 +26,7 @@ class WtiReportTests(unittest.TestCase):
         self.assertEqual(prices.index.name, "date")
         self.assertEqual(prices["price"].tolist(), [70.0, 71.0])
 
-    def test_analyze_and_summarize_prices(self):
+    def test_analyze_and_summarize_prices_includes_historical_tail_risk(self):
         prices = pd.DataFrame(
             {"price": [100.0, 110.0, 99.0, 108.9]},
             index=pd.date_range("2024-01-01", periods=4),
@@ -37,7 +37,23 @@ class WtiReportTests(unittest.TestCase):
 
         self.assertAlmostEqual(summary["cumulative_return"], 0.089)
         self.assertAlmostEqual(summary["maximum_drawdown"], -0.1)
+        # Returns are +10%, -10%, and +10%; the empirical 5th percentile
+        # is -10%, and its lower-tail mean is also -10%.
+        self.assertAlmostEqual(summary["var_95"], 0.1)
+        self.assertAlmostEqual(summary["expected_shortfall_95"], 0.1)
+        self.assertAlmostEqual(summary["largest_daily_gain"], 0.1)
+        self.assertAlmostEqual(summary["largest_daily_loss"], -0.1)
         self.assertEqual(summary["observations"], 4)
+
+    def test_tail_risk_is_non_negative_when_sample_has_no_losses(self):
+        prices = pd.DataFrame(
+            {"price": [10.0, 11.0, 12.1, 13.31]},
+            index=pd.date_range("2024-01-01", periods=4),
+        )
+        summary = generate.summarize_analysis(generate.analyze_prices(prices))
+
+        self.assertEqual(summary["var_95"], 0.0)
+        self.assertEqual(summary["expected_shortfall_95"], 0.0)
 
     def test_analysis_rejects_non_positive_prices(self):
         prices = pd.DataFrame(
