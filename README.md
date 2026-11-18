@@ -11,7 +11,9 @@ python -m pip install -r requirements.txt
 python wti_report/generate.py
 ```
 
-The script writes `reports/wti_analysis_YYYY-MM-DD.pdf` by default, with a price and moving-average chart, return and risk summary, drawdown, and rolling volatility. Use `--output /path/to/report.pdf` to choose another output path or `--lookback-years 5` to change the analysis window. The same date's report is overwritten on a rerun.
+The script writes `reports/wti_analysis_YYYY-MM-DD.pdf` by default, with a price and moving-average chart, return and risk summary, drawdown, rolling 20/60-observation volatility, and daily returns plotted against historical 95% Value at Risk (VaR) and expected shortfall thresholds. The summary includes the largest daily gain and loss. Use `--output /path/to/report.pdf` to choose another output path or `--lookback-years 5` to change the analysis window. The same date's report is overwritten on a rerun.
+
+VaR and expected shortfall are historical estimates calculated from the selected sample's daily percentage returns; they are descriptive risk measures, not forecasts or guarantees.
 
 To run it daily at 07:00 with cron, replace `/path/to/repo` with the absolute repository path and use the Python interpreter where the requirements are installed:
 

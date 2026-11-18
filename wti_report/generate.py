@@ -77,22 +77,26 @@ def analyze_prices(prices: pd.DataFrame) -> pd.DataFrame:
     analysis["return_index"] = analysis["price"] / analysis["price"].iloc[0]
     for window in (20, 50, 200):
         analysis[f"ma_{window}"] = analysis["price"].rolling(window, min_periods=window).mean()
-    analysis["volatility_20d_annualized"] = (
-        analysis["daily_return"].rolling(20, min_periods=20).std()
-        * np.sqrt(TRADING_DAYS_PER_YEAR)
-    )
+    for window in (20, 60):
+        analysis[f"volatility_{window}d_annualized"] = (
+            analysis["daily_return"].rolling(window, min_periods=window).std()
+            * np.sqrt(TRADING_DAYS_PER_YEAR)
+        )
     analysis["drawdown"] = analysis["price"] / analysis["price"].cummax() - 1
     return analysis
 
 
 def summarize_analysis(analysis: pd.DataFrame) -> dict[str, object]:
-    """Calculate period-level summary metrics for an analysis frame."""
+    """Calculate period-level summary and historical tail-risk metrics."""
     if len(analysis) < 2:
         raise ValueError("at least two analyzed observations are required")
 
     returns = analysis["daily_return"].dropna()
     if len(returns) < 2:
         raise ValueError("at least three price observations are required to calculate volatility")
+
+    var_threshold = float(returns.quantile(0.05))
+    tail_returns = returns[returns <= var_threshold]
     return {
         "start_date": analysis.index.min().date(),
         "end_date": analysis.index.max().date(),
@@ -102,6 +106,12 @@ def summarize_analysis(analysis: pd.DataFrame) -> dict[str, object]:
         "cumulative_return": float(analysis["return_index"].iloc[-1] - 1),
         "annualized_volatility": float(returns.std() * np.sqrt(TRADING_DAYS_PER_YEAR)),
         "maximum_drawdown": float(analysis["drawdown"].min()),
+        # Report risk measures as non-negative loss percentages, even if the
+        # empirical return quantile happens to be positive in a tiny sample.
+        "var_95": max(0.0, -var_threshold),
+        "expected_shortfall_95": max(0.0, float(-tail_returns.mean())),
+        "largest_daily_gain": float(returns.max()),
+        "largest_daily_loss": float(returns.min()),
     }
 
 
@@ -155,6 +165,9 @@ def generate_pdf_report(analysis: pd.DataFrame, output_path: str | Path) -> Path
             ("Cumulative return", f"{metrics['cumulative_return']:.2%}"),
             ("Annualized daily-return volatility", f"{metrics['annualized_volatility']:.2%}"),
             ("Maximum drawdown", f"{metrics['maximum_drawdown']:.2%}"),
+            ("95% daily VaR (historical)", f"{metrics['var_95']:.2%}"),
+            ("95% daily expected shortfall", f"{metrics['expected_shortfall_95']:.2%}"),
+            ("Largest daily gain / loss", f"{metrics['largest_daily_gain']:.2%} / {metrics['largest_daily_loss']:.2%}"),
         ]
         table = table_axis.table(
             cellText=table_rows,
@@ -165,7 +178,7 @@ def generate_pdf_report(analysis: pd.DataFrame, output_path: str | Path) -> Path
         )
         table.auto_set_font_size(False)
         table.set_fontsize(9)
-        table.scale(1, 1.25)
+        table.scale(1, 1.15)
 
         price_axis = summary_fig.add_subplot(grid[1])
         price_axis.plot(analysis.index, analysis["price"], label="WTI spot price", linewidth=1.5)
@@ -184,11 +197,12 @@ def generate_pdf_report(analysis: pd.DataFrame, output_path: str | Path) -> Path
         pdf.savefig(summary_fig)
         plt.close(summary_fig)
 
-        risk_fig, (drawdown_axis, volatility_axis) = plt.subplots(
-            2, 1, figsize=(11.7, 8.3), sharex=True
+        risk_fig, (drawdown_axis, volatility_axis, returns_axis) = plt.subplots(
+            3, 1, figsize=(11.7, 8.3), sharex=True,
+            gridspec_kw={"height_ratios": (1.2, 1, 1)},
         )
         _add_report_header(risk_fig, "WTI RISK INDICATORS", generated_at)
-        risk_fig.subplots_adjust(top=0.88, bottom=0.09, hspace=0.3)
+        risk_fig.subplots_adjust(top=0.88, bottom=0.09, hspace=0.42)
 
         drawdown_axis.fill_between(
             analysis.index, analysis["drawdown"] * 100, 0, alpha=0.35, color="firebrick"
@@ -200,13 +214,33 @@ def generate_pdf_report(analysis: pd.DataFrame, output_path: str | Path) -> Path
         volatility_axis.plot(
             analysis.index,
             analysis["volatility_20d_annualized"] * 100,
+            label="20-observation",
             color="darkorange",
             linewidth=1.2,
         )
-        volatility_axis.set_title("20-observation annualized volatility")
+        volatility_axis.plot(
+            analysis.index,
+            analysis["volatility_60d_annualized"] * 100,
+            label="60-observation",
+            color="steelblue",
+            linewidth=1.2,
+        )
+        volatility_axis.set_title("Rolling annualized volatility")
         volatility_axis.set_ylabel("Volatility (%)")
-        volatility_axis.set_xlabel("Date")
+        volatility_axis.legend(loc="best")
         volatility_axis.grid(alpha=0.25)
+
+        daily_var = -metrics["var_95"] * 100
+        daily_es = -metrics["expected_shortfall_95"] * 100
+        returns_axis.plot(analysis.index, analysis["daily_return"] * 100, color="slategray", linewidth=0.8)
+        returns_axis.axhline(daily_var, color="darkorange", linestyle="--", label="95% VaR threshold")
+        returns_axis.axhline(daily_es, color="firebrick", linestyle=":", label="95% expected shortfall")
+        returns_axis.set_title("Daily returns and historical downside thresholds")
+        returns_axis.set_ylabel("Daily return (%)")
+        returns_axis.set_xlabel("Date")
+        returns_axis.legend(loc="best")
+        returns_axis.grid(alpha=0.25)
+
         risk_fig.autofmt_xdate()
         pdf.savefig(risk_fig)
         plt.close(risk_fig)
